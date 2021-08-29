@@ -1,0 +1,87 @@
+version: "2"
+
+services:
+  nginx:
+    restart: always
+    image: nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/etc/nginx/conf.d"
+      - "/etc/nginx/vhost.d"
+      - "/usr/share/nginx/html"
+      - "./volumes/proxy/certs:/etc/nginx/certs:ro"
+
+  nginx-gen:
+    restart: always
+    image: jwilder/docker-gen
+    container_name: nginx-gen
+    volumes:
+      - "/var/run/docker.sock:/tmp/docker.sock:ro"
+      - "./volumes/proxy/templates/nginx.tmpl:/etc/docker-gen/templates/nginx.tmpl:ro"
+    volumes_from:
+      - nginx
+    entrypoint: /usr/local/bin/docker-gen -notify-sighup nginx -watch -wait 5s:30s /etc/docker-gen/templates/nginx.tmpl /etc/nginx/conf.d/default.conf
+
+  letsencrypt-nginx-proxy-companion:
+    restart: always
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    container_name: letsencrypt-nginx-proxy-companion
+    volumes_from:
+      - nginx
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./volumes/proxy/certs:/etc/nginx/certs:rw"
+    environment:
+      - NGINX_DOCKER_GEN_CONTAINER=nginx-gen
+
+  db:
+    image: mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_USER: redmine
+      MYSQL_PASSWORD: your_mysql_password
+      MYSQL_ROOT_PASSWORD: your_mysql_password
+      MYSQL_DATABASE: redmine
+    ports:
+      - 127.0.0.1:3306:3306
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redmine:
+    restart: always
+    image: redmine
+    expose:
+      - "3000"
+    depends_on:
+      - db
+    environment:
+      - VIRTUAL_HOST=www.yourdomain.com
+      - VIRTUAL_NETWORK=nginx-proxy
+      - VIRTUAL_PORT=9000
+      - LETSENCRYPT_HOST=www.yourdomain.com
+      - LETSENCRYPT_EMAIL=your@mail.com
+      - REDMINE_DB_MYSQL=db
+      - REDMINE_DB_USERNAME=redmine
+      - REDMINE_DB_PASSWORD=your_mysql_password
+      - REDMINE_DB_DATABASE=redmine
+      - SMTP_ENABLED=true
+      - SMTP_METHOD=smtp
+      - SMTP_DOMAIN=yourdomain.com
+      - SMTP_HOST=smtp.mandrillapp.com
+      - SMTP_PORT=587
+      - SMTP_USER=your@mail.com
+      - SMTP_PASS=your_mandrill_password
+      - SMTP_STARTTLS=true
+      - SMTP_AUTHENTICATION=:login
+    volumes:
+      - redmine_files:/usr/src/redmine/files
+      - redmine_plugins:/usr/src/redmine/plugins
+
+volumes:
+  mysql_data:
+  redmine_files:
+  redmine_plugins:
